@@ -110,6 +110,14 @@ main{padding:10px 14px;max-width:980px;margin:0 auto}
 .nuvem .bt{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 @media (min-width:1000px){.nuvem{margin-left:auto;margin-right:auto}}
 .rf{border:1px solid var(--line);background:rgba(14,21,29,.7);color:var(--txt2);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+.jogo{cursor:pointer}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:150;display:flex;align-items:flex-end;justify-content:center}
+.sheet .fol{background:var(--card);border:1px solid var(--line);border-radius:22px 22px 0 0;width:100%;max-width:560px;max-height:88vh;overflow:auto;padding:16px 16px calc(22px + env(safe-area-inset-bottom))}
+.fh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.fh b{font-family:var(--f-display);font-size:16px}
+.fh small{display:block;color:var(--txt2);font-size:12px;margin-top:2px}
+.fl{margin:10px 0}.fh4{font-family:var(--f-display);font-size:14px;margin:14px 0 4px}
+.syncl{margin-top:6px;font-size:11.5px;color:var(--txt2)}.syncl b{color:var(--txt);font-weight:600}
 .fchip.on{background:var(--ok);border-color:var(--ok);color:#03150c}.fchip.on b{color:#03150c}
 .dia-info>summary{list-style:none;padding:12px 14px;cursor:pointer;font-family:var(--f-display);font-weight:600;font-size:14px;display:flex;justify-content:space-between;gap:8px}
 .dia-info>summary::-webkit-details-marker{display:none}
@@ -247,7 +255,7 @@ function somaMes(p){const inf=DB.info[p.dia];if(!inf)return;
  for(const r of p.regras||[]){const x=(inf.regras||[]).find(y=>y.id==r.id);if(!x||!x.mes||String(p.dia).slice(0,7)!=x.mes.ym)continue;const m=x.mes;
   m.lucro+=p.lucro;m.n++;if(p.resultado=="acertou")m.ok++;let dd=m.dias.find(q=>q.d==p.dia);if(!dd){dd={d:p.dia,n:0,ok:0,lucro:0};m.dias.push(dd);m.dias.sort((a,b)=>a.d.localeCompare(b.d))}
   dd.n++;if(p.resultado=="acertou")dd.ok++;dd.lucro+=p.lucro}}
-function desenhaRf(){const b=document.getElementById("btnRf");if(!b)return;b.textContent=_rfErro?"↻ sem conexão":_rfEm?"↻ "+String(_rfEm.getHours()).padStart(2,"0")+":"+String(_rfEm.getMinutes()).padStart(2,"0"):"↻ atualizar"}
+function desenhaRf(){const b=document.getElementById("btnRf");if(!b)return;b.textContent=_rfErro?"↻ sem conexão":_rfEm?"↻ "+String(_rfEm.getHours()).padStart(2,"0")+":"+String(_rfEm.getMinutes()).padStart(2,"0"):"↻ atualizar";statusSync()}
 function agendaNuvem(){clearTimeout(_rfSalvaT);_rfSalvaT=setTimeout(()=>{_rfSalvaT=null;salvaNuvem(true)},300000)}
 const limpaPlacar=t=>String(t).split("-").map(x=>x.trim()).join(" - ");
 async function atualizaPlacares(manual){if(_rfBusy)return;
@@ -280,6 +288,32 @@ async function sincronizaNuvem(manual){if(!ghToken())return false;if(!manual&&Da
   if(msg.length){desenha();aviso("Nuvem: "+msg.join(" · "))}else if(manual)aviso("Já está tudo atualizado.");
   return true}
  catch(e){if(manual)aviso("Nuvem: "+e.message);return false}}
+/* ── Detalhe do jogo (toque no cartão): regras que indicaram, histórico de cada uma, odd mínima e valor esperado ── */
+function fechaDetalhe(){const m=document.getElementById("detalhe");if(m)m.remove()}
+function abreDetalhe(id){const dia=diaSel,p=(DB.dias[dia]||{})[id];if(!p)return;fechaDetalhe();const inf=DB.info[dia]||{},v=valorDe(p);
+ const st=p.resultado=="acertou"?`<span class="selo ok">${IC.ok} Acertou ${u(p.lucro)}</span>`:p.resultado=="errou"?`<span class="selo no">${IC.no} Errou ${u(p.lucro)}</span>`:p.status=="andamento"?`<span class="selo live">Ao vivo</span>`:`<span class="selo">${IC.espera} Aguardando</span>`;
+ const regs=(p.regras||[]).map(r=>{const x=(inf.regras||[]).find(y=>y.id==r.id)||{},m=x.mes;
+  return `<div class="rg"><span class="sel ${classeVer(r.ver)}">${esc(r.ver)}</span><b>${esc(r.mercado)}</b><small>${esc(r.curto)}</small><small>${r.pass}/${r.total} testes${x.lucro_total!=null?` · profit geral ${u(x.lucro_total)}`:""}${m?` · mês ${u(m.lucro)} (${m.n} apostas, ${m.n?Math.round(m.ok/m.n*100):0}% de acerto)`:""}</small>${m&&m.dias&&m.dias.length?mesHtml(m):""}</div>`}).join("");
+ const w=document.createElement("div");w.id="detalhe";w.className="sheet";w.onclick=e=>{if(e.target==w)fechaDetalhe()};
+ w.innerHTML=`<div class="fol"><div class="fh"><div><b>${esc(p.casa)} x ${esc(p.fora)}</b><small>${esc(p.liga)} · ${esc(p.hora||"")}${p.placar?" · "+esc(p.placar):""}</small></div><button class="fchip" onclick="fechaDetalhe()">Fechar</button></div>
+  <div class="fl">${st}</div>
+  <div class="kgrid"><div class="k"><small>Previsão</small><b>${esc(p.aposta)}</b></div><div class="k"><small>Odd</small><b>${Number(p.odd).toFixed(2)}</b></div><div class="k"><small>Odd mínima</small><b class="${v&&v.compensa?"ok":"no"}">${v?v.oddMin.toFixed(2):"–"}</b></div></div>
+  ${v?`<div class="kgrid"><div class="k"><small>Valor esperado</small><b class="${v.ev>0?"ok":"mut"}">${u(v.ev)}</b></div><div class="k"><small>Taxa estimada</small><b>${Math.round(v.p*100)}%</b></div><div class="k"><small>Regras</small><b>${(p.regras||[]).length}</b></div></div>`:""}
+  <h4 class="fh4">Regras que indicaram</h4>${regs||'<div class="mut" style="font-size:12.5px">Sem detalhes das regras neste arquivo.</div>'}</div>`;
+ document.body.appendChild(w)}
+document.addEventListener("keydown",e=>{if(e.key=="Escape")fechaDetalhe()});
+/* ── Compartilhar o resultado do dia (Telegram, WhatsApp...) ── */
+function textoResumo(){const dia=diaSel;if(!dia||!DB.dias[dia])return "";const L=Object.values(DB.dias[dia]).sort((a,b)=>(a.utc||"").localeCompare(b.utc||"")),s=stats(L),d=dia.slice(8)+"/"+dia.slice(5,7);
+ let t=`Gol em Números — ${d}\n${s.ok}/${s.dec} acertos${s.dec?" ("+s.taxa.toFixed(0)+"%)":""} · ${s.dec?u(s.lucro):"–"}${s.dec?" · ROI "+pc(s.roi):""}`;
+ const fim=L.filter(p=>p.resultado);if(fim.length)t+="\n\n"+fim.map(p=>`${p.resultado=="acertou"?"✅":"❌"} ${p.casa} x ${p.fora} — ${p.aposta} @ ${Number(p.odd).toFixed(2)} (${u(p.lucro)})`).join("\n");
+ if(s.pend)t+=`\n\n⏳ ${s.pend} jogo(s) em aberto`;return t}
+async function compartilha(){const t=textoResumo();if(!t){aviso("Nada para compartilhar ainda.");return}
+ try{if(navigator.share){await navigator.share({title:"Gol em Números",text:t});return}}catch(e){if(e&&e.name=="AbortError")return}
+ try{await navigator.clipboard.writeText(t);aviso("Resumo copiado. É só colar no Telegram ou no WhatsApp.")}catch(e){aviso("Não consegui compartilhar neste navegador.")}}
+/* ── Situação da sincronização ── */
+function statusSync(){const el=document.getElementById("syncL");if(!el)return;const g=(DB.info[diaSel]||{}).gerado_em,hm=d=>String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+ const lista=g?g.slice(8,10)+"/"+g.slice(5,7)+" às "+g.slice(11,16):"–";
+ el.innerHTML=`Lista do painel: <b>${lista}</b> · Placares: <b class="${_rfErro?"no":""}">${_rfErro?"sem conexão":_rfEm?hm(_rfEm):"–"}</b>${DB.nuvem_em?` · Cópia na nuvem: <b>${hm(new Date(DB.nuvem_em))}</b>`:""}`}
 async function recomecaDia(dia){if(!(await confirma("Descartar a lista deste dia? O próximo arquivo importado vira a nova lista do dia.")))return;delete DB.dias[dia];delete DB.info[dia];salva();salvaNuvem(true);const ds=Object.keys(DB.dias).sort();diaSel=ds[ds.length-1]||null;desenha()}
 document.getElementById("arq").onchange=async e=>{const fs=[...e.target.files];e.target.value="";if(!fs.length)return;
  try{const docs=[];for(const f of fs)docs.push(JSON.parse(await f.text()));if(docs.some(d=>d&&d.tipo=="backup_app")){await restauraCopia(docs.find(d=>d.tipo=="backup_app"));return}const r=importa(docs);
@@ -287,20 +321,21 @@ document.getElementById("arq").onchange=async e=>{const fs=[...e.target.files];e
  catch(err){aviso("Erro ao importar: "+err.message)}};
 /* ── Cartão ── */
 const crest=(id,n)=>id?`<img src="${URL_ESC(id)}" alt="${esc(n)}" loading="lazy" onerror="this.outerHTML='<span class=&quot;fb&quot;>'+this.alt.slice(0,2).toUpperCase()+'</span>'">`:`<span class="fb">${esc(n).slice(0,2).toUpperCase()}</span>`;
-function valorDe(p){if(!p.hist||!p.hist.n)return null;const K=30,pr=(p.hist.ok+K*(1/(1+ganho(p.odd))))/(p.hist.n+K),ev=pr*ganho(p.odd)-(1-pr),om=1+(1/pr-1)/(1-COM);return {ev,oddMin:om,compensa:p.odd>=om}}
+function valorDe(p){if(!p.hist||!p.hist.n)return null;const K=30,pr=(p.hist.ok+K*(1/(1+ganho(p.odd))))/(p.hist.n+K),ev=pr*ganho(p.odd)-(1-pr),om=1+(1/pr-1)/(1-COM);return {p:pr,ev,oddMin:om,compensa:p.odd>=om}}
 function jogo(p){const ok=p.resultado=="acertou",no=p.resultado=="errou",vivo=p.status=="andamento",canc=p.status=="cancelado";
  const cls=ok?"ok":no?"no":vivo?"live":"",top=vivo?`<span><i class="dot"></i>ao vivo</span>`:`<span>${esc(p.hora||"")}</span>`;
  const pl=p.placar?esc(p.placar.replace(/ /g,"").replace("-"," – ")):"VS",v=valorDe(p),rg=p.regras||[];
  const selo=ok?`<span class="selo ok">${IC.ok} Acertou <span class="v">${u(p.lucro)}</span></span>`:no?`<span class="selo no">${IC.no} Errou <span class="v">${u(p.lucro)}</span></span>`:canc?`<span class="selo">Cancelado</span>`:vivo?`<span class="selo live">Ao vivo</span>`:`<span class="selo">${IC.espera} Aguardando</span>`;
  const val=v?`<div class="valor"><span class="vtag ${v.compensa?"ok":"no"}" title="Abaixo dessa odd a aposta deixa de compensar">Odd mín. <b>${v.oddMin.toFixed(2)}</b> ${v.compensa?"✓":"✗"}</span><span class="vtag ${v.ev>0?"ok":""}">EV <b>${u(v.ev)}</b></span></div>`:"";
  const reg=rg.length?`<div class="regras" title="${esc(rg.map(r=>r.mercado+": "+r.curto).join(" | "))}"><b>${rg.length>1?rg.length+" regras":"1 regra"}</b> · ${esc(rg.map(r=>r.mercado).join(" · "))}</div>`:"";
- return `<article class="jogo ${cls}"><div class="j-top"><span>${esc(p.liga)}</span>${top}</div>
+ return `<article class="jogo ${cls}" data-id="${esc(p.id)}"><div class="j-top"><span>${esc(p.liga)}</span>${top}</div>
   <div class="confronto"><div class="time">${crest(p.id_casa,p.casa)}<span>${esc(p.casa)}</span></div><div class="placar ${p.placar?"":"x"}">${pl}</div><div class="time">${crest(p.id_fora,p.fora)}<span>${esc(p.fora)}</span></div></div>
   ${val}${reg}<div class="j-foot"><div class="aposta"><small>Previsão</small><b>${esc(p.aposta)}<i>${Number(p.odd).toFixed(2)}</i></b></div>${selo}</div></article>`}
 function anel(s){const C=2*Math.PI*44,t=Math.max(s.n,1),a=s.ok/t*C,b=s.erro/t*C;
  return `<svg viewBox="0 0 108 108"><circle cx="54" cy="54" r="44" fill="none" stroke="#1b2937" stroke-width="10"/><circle cx="54" cy="54" r="44" fill="none" stroke="var(--no)" stroke-width="10" stroke-dasharray="${b} ${C}" stroke-dashoffset="${-a}"/><circle cx="54" cy="54" r="44" fill="none" stroke="var(--ok)" stroke-width="10" stroke-dasharray="${a} ${C}"/></svg>`}
 function heroDia(titulo,s,sub,mostraPend){const dias=Object.keys(DB.dias).sort(),dt=new Date(diaSel+"T12:00:00"),tx=dt.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
- return `<div class="data">${esc(titulo||tx.charAt(0).toUpperCase()+tx.slice(1))} <select id="selDia">${dias.slice().reverse().map(d=>`<option value="${d}"${d==diaSel?" selected":""}>${d.slice(8)}/${d.slice(5,7)}</option>`).join("")}</select> <button class="rf" id="btnRf" onclick="atualizaPlacares(true)">↻ atualizar</button></div>
+ return `<div class="data">${esc(titulo||tx.charAt(0).toUpperCase()+tx.slice(1))} <select id="selDia">${dias.slice().reverse().map(d=>`<option value="${d}"${d==diaSel?" selected":""}>${d.slice(8)}/${d.slice(5,7)}</option>`).join("")}</select> <button class="rf" id="btnRf" onclick="atualizaPlacares(true)">↻ atualizar</button> <button class="rf" onclick="compartilha()">Compartilhar</button></div>
+ <div class="syncl" id="syncL"></div>
  <div class="resumo"><div class="anel">${anel(s)}<div class="c"><b>${s.ok}/${s.dec}</b><small>acertos</small></div></div><div class="kpis"><div class="kpi-big ${s.dec?cl(s.lucro):"mut"}">${s.dec?u(s.lucro):"–"}</div><div class="kpi-sub">${sub}</div>
  <div class="kpi-row"><span class="pill">Taxa <b>${s.dec?s.taxa.toFixed(0)+"%":"–"}</b></span>${mostraPend?`<span class="pill">Aguardando <b class="${s.pend?"live":""}">${s.pend}</b></span>`:`<span class="pill">ROI <b class="${cl(s.roi)}">${s.dec?pc(s.roi):"–"}</b></span>`}</div></div></div>`}
 const vazioMsg=t=>`<div class="vazio"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>${t}</div>`;
@@ -361,7 +396,7 @@ function desenha(){const c=document.getElementById("conteudo");
  document.getElementById("tHoje").classList.toggle("on",aba=="hoje");document.getElementById("tHist").classList.toggle("on",aba=="hist");
  c.innerHTML=aba=="hoje"?telaDia():telaHist();
  document.getElementById("nota").innerHTML=`Cada aposta vale 1 unidade, com a odd gravada na primeira rodada do dia e comissão de 5% sobre o lucro. Mede o que aconteceu com as previsões; não é garantia de lucro futuro.${DB.gerado_em?` Último arquivo importado: ${esc(DB.gerado_em)} — fica guardado neste aparelho até você importar outro.`:""} Escudos: FotMob.<br><button class="fchip" style="margin-top:8px" onclick="salvaCopia()">Salvar cópia de segurança</button> <button class="fchip" style="margin-top:8px" onclick="document.getElementById('arqBkp').click()">Restaurar cópia</button>`;
- desenhaNuvem();desenhaRf();
+ desenhaNuvem();desenhaRf();document.querySelectorAll("#conteudo .jogo").forEach(el=>{el.onclick=()=>abreDetalhe(el.dataset.id)});
  const s=document.getElementById("selDia");if(s)s.onchange=()=>{diaSel=s.value;filtroRegra="";filtroHoje=null;desenha()}}
 document.getElementById("tHoje").onclick=()=>{aba="hoje";desenha();scrollTo(0,0)};
 document.getElementById("tHist").onclick=()=>{aba="hist";desenha();scrollTo(0,0)};
