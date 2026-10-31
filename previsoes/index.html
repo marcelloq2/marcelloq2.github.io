@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#060a0f">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://images.fotmob.com; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://images.fotmob.com; connect-src 'self' https://api.github.com https://www.fotmob.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Gol em Números — Previsões</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -109,6 +109,7 @@ main{padding:10px 14px;max-width:980px;margin:0 auto}
 .nuvem input{width:100%;background:var(--card2);border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:10px;font-size:13px;font-family:var(--f-mono);margin:8px 0}
 .nuvem .bt{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 @media (min-width:1000px){.nuvem{margin-left:auto;margin-right:auto}}
+.rf{border:1px solid var(--line);background:rgba(14,21,29,.7);color:var(--txt2);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit}
 .fchip.on{background:var(--ok);border-color:var(--ok);color:#03150c}.fchip.on b{color:#03150c}
 .dia-info>summary{list-style:none;padding:12px 14px;cursor:pointer;font-family:var(--f-display);font-weight:600;font-size:14px;display:flex;justify-content:space-between;gap:8px}
 .dia-info>summary::-webkit-details-marker{display:none}
@@ -237,10 +238,39 @@ function desenhaNuvem(){const b=document.getElementById("nuvemBox");if(!b)return
  A cópia vai para um repositório <b>privado</b> só seu (<b>${esc(NUVEM.repo)}</b>), separado do site. Se os dados deste aparelho sumirem, cole o token e toque em <b>Buscar da nuvem</b>.
  ${tem?`<div>Token guardado neste aparelho. Cada importação salva a cópia automaticamente.</div>`:`<div>Crie um token em github.com/settings/personal-access-tokens (<i>fine-grained</i>): só o repositório <b>${esc(NUVEM.repo)}</b> (nenhum outro), permissão <b>Contents: Read and write</b>, validade de até 90 dias. Cole abaixo (ele fica só aqui).</div><input id="inGh" type="password" placeholder="cole o token aqui" autocomplete="off">`}
  <div class="bt">${tem?"":`<button class="fchip" onclick="guardaToken()">Guardar token</button>`}<button class="fchip" onclick="salvaNuvem(false)">Salvar na nuvem agora</button><button class="fchip" onclick="buscaNuvem(false)">Buscar da nuvem</button>${tem?`<button class="fchip" onclick="apagaToken()">Remover token</button>`:""}</div></div></details>`}
+/* ── Placares ao vivo (FotMob, a mesma fonte do painel): ao abrir o app, ao voltar pra ele e a cada 90 s enquanto estiver aberto. ──
+   Um jogo que começou vira "ao vivo"; ao terminar o cartão vira acertou/errou e o profit do dia e o do mês das regras já contam. Quem acabou enquanto o app
+   estava fechado é resolvido na próxima abertura. Se o FotMob falhar, vale o que veio do arquivo do painel. */
+let _rfBusy=false,_rfEm=null,_rfErro=false,_rfSalvaT=null;
+const RES_LK={casa:(a,b)=>a>b,fora:(a,b)=>b>a,empate:(a,b)=>a==b,o15:(a,b)=>a+b>=2,u15:(a,b)=>a+b<2,o25:(a,b)=>a+b>=3,u25:(a,b)=>a+b<3,o35:(a,b)=>a+b>=4,u35:(a,b)=>a+b<4,bs:(a,b)=>a>0&&b>0,bn:(a,b)=>!(a>0&&b>0)};
+function somaMes(p){const inf=DB.info[p.dia];if(!inf)return;
+ for(const r of p.regras||[]){const x=(inf.regras||[]).find(y=>y.id==r.id);if(!x||!x.mes||String(p.dia).slice(0,7)!=x.mes.ym)continue;const m=x.mes;
+  m.lucro+=p.lucro;m.n++;if(p.resultado=="acertou")m.ok++;let dd=m.dias.find(q=>q.d==p.dia);if(!dd){dd={d:p.dia,n:0,ok:0,lucro:0};m.dias.push(dd);m.dias.sort((a,b)=>a.d.localeCompare(b.d))}
+  dd.n++;if(p.resultado=="acertou")dd.ok++;dd.lucro+=p.lucro}}
+function desenhaRf(){const b=document.getElementById("btnRf");if(!b)return;b.textContent=_rfErro?"↻ sem conexão":_rfEm?"↻ "+String(_rfEm.getHours()).padStart(2,"0")+":"+String(_rfEm.getMinutes()).padStart(2,"0"):"↻ atualizar"}
+function agendaNuvem(){clearTimeout(_rfSalvaT);_rfSalvaT=setTimeout(()=>{_rfSalvaT=null;salvaNuvem(true)},300000)}
+const limpaPlacar=t=>String(t).split("-").map(x=>x.trim()).join(" - ");
+async function atualizaPlacares(manual){if(_rfBusy)return;
+ const dias=Object.keys(DB.dias).sort().slice(-3).filter(d=>Object.values(DB.dias[d]).some(p=>!p.resultado&&p.status!="cancelado"));
+ if(!dias.length){if(manual)aviso("Todos os jogos já terminaram.");return}
+ _rfBusy=true;let mudou=0,fim=0;
+ try{for(const dia of dias){const r=await fetch(`https://www.fotmob.com/api/data/matches?date=${dia.split("-").join("")}&timezone=America%2FSao_Paulo&ccode3=BRA`);if(!r.ok)throw new Error("FotMob respondeu "+r.status);
+   const j=await r.json(),mp={};for(const l of j.leagues||[])for(const m of l.matches||[])mp[String(m.id)]=m.status||{};
+   for(const p of Object.values(DB.dias[dia])){if(p.resultado||p.status=="cancelado")continue;const st0=mp[String(p.id).split("|")[0]];if(!st0)continue;
+    const st=st0.cancelled?"cancelado":st0.finished?"encerrado":st0.started?"andamento":"pendente",pl=st0.started&&st0.scoreStr?limpaPlacar(st0.scoreStr):null;
+    if(st!=p.status||pl!=(p.placar||null)){p.status=st;p.placar=pl;mudou++}
+    if(st=="encerrado"&&pl){const [a,b]=pl.split(" - ").map(Number),f=RES_LK[String(p.id).split("|")[1]];
+     if(f&&!isNaN(a)&&!isNaN(b)){const ok=f(a,b);p.resultado=ok?"acertou":"errou";p.lucro=ok?ganho(p.odd):-1;somaMes(p);fim++}}}}
+  _rfErro=false;_rfEm=new Date();if(mudou||fim){salva();desenha();if(fim)agendaNuvem()}else desenhaRf();
+  if(manual)aviso(fim?`${fim} jogo(s) terminaram: resultado atualizado.`:mudou?"Placares atualizados.":"Sem novidades por enquanto.")}
+ catch(e){_rfErro=true;desenhaRf();if(manual)aviso("Não consegui atualizar os placares agora ("+e.message+"). Vale o que veio do painel.")}
+ finally{_rfBusy=false}}
+setInterval(()=>{if(document.visibilityState=="visible")atualizaPlacares(false)},90000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState=="visible")atualizaPlacares(false);else if(_rfSalvaT){clearTimeout(_rfSalvaT);_rfSalvaT=null;salvaNuvem(true)}});
 async function recomecaDia(dia){if(!(await confirma("Descartar a lista deste dia? O próximo arquivo importado vira a nova lista do dia.")))return;delete DB.dias[dia];delete DB.info[dia];salva();salvaNuvem(true);const ds=Object.keys(DB.dias).sort();diaSel=ds[ds.length-1]||null;desenha()}
 document.getElementById("arq").onchange=async e=>{const fs=[...e.target.files];e.target.value="";if(!fs.length)return;
  try{const docs=[];for(const f of fs)docs.push(JSON.parse(await f.text()));if(docs.some(d=>d&&d.tipo=="backup_app")){await restauraCopia(docs.find(d=>d.tipo=="backup_app"));return}const r=importa(docs);
-  const dias=Object.keys(DB.dias).sort();diaSel=dias[dias.length-1];salvaNuvem(true);aviso(r.criados?`Lista do dia criada: ${r.novas} previsão(ões). Ela fica fixa até o fim do dia.`:`Resultados atualizados: ${r.atual} jogo(s) encerrado(s) novo(s)${r.ignoradas?` · ${r.ignoradas} indicação(ões) do arquivo ignorada(s): a lista do dia é a da primeira importação`:""}.`);desenha()}
+  const dias=Object.keys(DB.dias).sort();diaSel=dias[dias.length-1];salvaNuvem(true);atualizaPlacares(false);aviso(r.criados?`Lista do dia criada: ${r.novas} previsão(ões). Ela fica fixa até o fim do dia.`:`Resultados atualizados: ${r.atual} jogo(s) encerrado(s) novo(s)${r.ignoradas?` · ${r.ignoradas} indicação(ões) do arquivo ignorada(s): a lista do dia é a da primeira importação`:""}.`);desenha()}
  catch(err){aviso("Erro ao importar: "+err.message)}};
 /* ── Cartão ── */
 const crest=(id,n)=>id?`<img src="${URL_ESC(id)}" alt="${esc(n)}" loading="lazy" onerror="this.outerHTML='<span class=&quot;fb&quot;>'+this.alt.slice(0,2).toUpperCase()+'</span>'">`:`<span class="fb">${esc(n).slice(0,2).toUpperCase()}</span>`;
@@ -257,7 +287,7 @@ function jogo(p){const ok=p.resultado=="acertou",no=p.resultado=="errou",vivo=p.
 function anel(s){const C=2*Math.PI*44,t=Math.max(s.n,1),a=s.ok/t*C,b=s.erro/t*C;
  return `<svg viewBox="0 0 108 108"><circle cx="54" cy="54" r="44" fill="none" stroke="#1b2937" stroke-width="10"/><circle cx="54" cy="54" r="44" fill="none" stroke="var(--no)" stroke-width="10" stroke-dasharray="${b} ${C}" stroke-dashoffset="${-a}"/><circle cx="54" cy="54" r="44" fill="none" stroke="var(--ok)" stroke-width="10" stroke-dasharray="${a} ${C}"/></svg>`}
 function heroDia(titulo,s,sub,mostraPend){const dias=Object.keys(DB.dias).sort(),dt=new Date(diaSel+"T12:00:00"),tx=dt.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
- return `<div class="data">${esc(titulo||tx.charAt(0).toUpperCase()+tx.slice(1))} <select id="selDia">${dias.slice().reverse().map(d=>`<option value="${d}"${d==diaSel?" selected":""}>${d.slice(8)}/${d.slice(5,7)}</option>`).join("")}</select></div>
+ return `<div class="data">${esc(titulo||tx.charAt(0).toUpperCase()+tx.slice(1))} <select id="selDia">${dias.slice().reverse().map(d=>`<option value="${d}"${d==diaSel?" selected":""}>${d.slice(8)}/${d.slice(5,7)}</option>`).join("")}</select> <button class="rf" id="btnRf" onclick="atualizaPlacares(true)">↻ atualizar</button></div>
  <div class="resumo"><div class="anel">${anel(s)}<div class="c"><b>${s.ok}/${s.dec}</b><small>acertos</small></div></div><div class="kpis"><div class="kpi-big ${s.dec?cl(s.lucro):"mut"}">${s.dec?u(s.lucro):"–"}</div><div class="kpi-sub">${sub}</div>
  <div class="kpi-row"><span class="pill">Taxa <b>${s.dec?s.taxa.toFixed(0)+"%":"–"}</b></span>${mostraPend?`<span class="pill">Aguardando <b class="${s.pend?"live":""}">${s.pend}</b></span>`:`<span class="pill">ROI <b class="${cl(s.roi)}">${s.dec?pc(s.roi):"–"}</b></span>`}</div></div></div>`}
 const vazioMsg=t=>`<div class="vazio"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>${t}</div>`;
@@ -318,12 +348,12 @@ function desenha(){const c=document.getElementById("conteudo");
  document.getElementById("tHoje").classList.toggle("on",aba=="hoje");document.getElementById("tHist").classList.toggle("on",aba=="hist");
  c.innerHTML=aba=="hoje"?telaDia():telaHist();
  document.getElementById("nota").innerHTML=`Cada aposta vale 1 unidade, com a odd gravada na primeira rodada do dia e comissão de 5% sobre o lucro. Mede o que aconteceu com as previsões; não é garantia de lucro futuro.${DB.gerado_em?` Último arquivo importado: ${esc(DB.gerado_em)} — fica guardado neste aparelho até você importar outro.`:""} Escudos: FotMob.<br><button class="fchip" style="margin-top:8px" onclick="salvaCopia()">Salvar cópia de segurança</button> <button class="fchip" style="margin-top:8px" onclick="document.getElementById('arqBkp').click()">Restaurar cópia</button>`;
- desenhaNuvem();
+ desenhaNuvem();desenhaRf();
  const s=document.getElementById("selDia");if(s)s.onchange=()=>{diaSel=s.value;filtroRegra="";filtroHoje=null;desenha()}}
 document.getElementById("tHoje").onclick=()=>{aba="hoje";desenha();scrollTo(0,0)};
 document.getElementById("tHist").onclick=()=>{aba="hist";desenha();scrollTo(0,0)};
 carrega();desenha();
-if(!Object.keys(DB.dias).length)buscaNuvem(true);   // aparelho vazio (dados apagados / outro aparelho): tenta recuperar a cópia do GitHub
+if(!Object.keys(DB.dias).length)buscaNuvem(true);else atualizaPlacares(false);   // aparelho vazio (dados apagados / outro aparelho): tenta recuperar a cópia do GitHub
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}   // pede ao navegador pra não apagar os dados guardados
 if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
