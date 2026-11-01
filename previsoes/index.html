@@ -196,7 +196,7 @@ function importa(docs){let novas=0,atual=0,ignoradas=0,criados=0;docs.sort((a,b)
   const dia0=doc.dia||(doc.previsoes[0]&&doc.previsoes[0].dia);if(!dia0)throw new Error("arquivo sem o dia");
   const travado=DB.dias[dia0]&&Object.keys(DB.dias[dia0]).length>0;
   if(!travado){const d=DB.dias[dia0]={};for(const p of doc.previsoes){if(!p.id)continue;d[p.id]=p;novas++}
-   DB.info[dia0]={sem_regra:!!doc.sem_regra,regras:doc.regras_dia||[],conflitos:doc.conflitos||[],criterio:doc.criterio||null,gerado_em:doc.gerado_em||null};criados++}
+   DB.info[dia0]={sem_regra:!!doc.sem_regra,regras:doc.regras_dia||[],conflitos:doc.conflitos||[],criterio:doc.criterio||null,gerado_em:doc.gerado_em||null,congelado_em:doc.congelado_em||null};criados++}
   else{const d=DB.dias[dia0];
    for(const p of doc.previsoes){const ant=d[p.id];if(!ant){ignoradas++;continue}
     if(p.resultado||!ant.resultado){d[p.id]={...ant,status:p.status,placar:p.placar,resultado:p.resultado,lucro:p.lucro};if(p.resultado&&!ant.resultado)atual++}}
@@ -344,7 +344,8 @@ const classeVer=v=>v=="VALIDADA"?"VALIDADA":v=="PROMISSORA"?"PROMISSORA":v=="EM 
 function infoDia(inf){if(!inf)return "";
  const rg=inf.regras||[],cf=inf.conflitos||[],cr=inf.criterio;
  if(inf.sem_regra)return `<div class="aviso"><b>Nenhuma regra com chance de ser sorte 0% hoje.</b><br>Nenhuma regra do ranking chegou em 0% de chance de ser sorte, então não há jogos para mostrar hoje.</div>`;
- return `<details class="dia-info"><summary><span>Regras de hoje (${rg.length})</span><span class="mut" style="font-weight:400;font-size:12px">${cr?cr.max_testes+" testes · sorte 0%":""}</span></summary><div class="corpo">`+
+ const cg=inf.congelado_em?`<div class="rg"><small>Regras congeladas às ${esc(inf.congelado_em.slice(11))}. Elas só mudam no dia seguinte, quando o painel roda de manhã.</small></div>`:"";
+ return `<details class="dia-info"><summary><span>Regras de hoje (${rg.length})</span><span class="mut" style="font-weight:400;font-size:12px">${cr?cr.max_testes+" testes · sorte 0%":""}</span></summary><div class="corpo">${cg}`+
   rg.map(r=>`<div class="rg"><span class="sel ${classeVer(r.ver)}">${esc(r.ver)}</span><b>${esc(r.mercado)}</b> <span class="mut">· ${r.pass}/${r.total} testes · ${r.n_jogos} jogo(s) · profit geral ${u(r.lucro_total)}${r.mes?` · mês <b class="${cl(r.mes.lucro)}">${u(r.mes.lucro)}</b>`:""}</span><small>${esc(r.curto)}</small></div>`).join("")+
   (cf.length?`<div class="rg"><b>Conflitos resolvidos (${cf.length})</b><small>Quando regras indicam lados opostos no mesmo jogo, fica só a regra com maior profit geral.</small></div>`+cf.map(c=>`<div class="rg">${esc(c.jogo)}<small>fica: <b class="ok">${esc(c.mantida.lado)}</b> (${esc(c.mantida.regra)}, ${u(c.mantida.lucro_total)}) · saiu: ${c.descartadas.map(d=>esc(d.lado)+" ("+esc(d.regra)+", "+u(d.lucro_total)+")").join(", ")}</small></div>`).join(""):"")+`<div class="rg"><small>A lista do dia fica fixa desde a primeira importação; importar de novo só atualiza resultados.</small><button class="fchip" style="margin-top:6px" onclick="recomecaDia(diaSel)">Recomeçar este dia</button></div></div></details>`}
 function mesHtml(m){if(!m)return "";const [a,mo]=m.ym.split("-").map(Number),nomeMes=new Date(a,mo-1,1).toLocaleDateString("pt-BR",{month:"long"}),dias=m.dias||[];
