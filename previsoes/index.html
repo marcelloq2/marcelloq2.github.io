@@ -111,6 +111,7 @@ main{padding:10px 14px;max-width:980px;margin:0 auto}
 @media (min-width:1000px){.nuvem{margin-left:auto;margin-right:auto}}
 .rf{border:1px solid var(--line);background:rgba(14,21,29,.7);color:var(--txt2);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit}
 .jogo{cursor:pointer}
+.jogo.anul{opacity:.55}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:150;display:flex;align-items:flex-end;justify-content:center}
 .sheet .fol{background:var(--card);border:1px solid var(--line);border-radius:22px 22px 0 0;width:100%;max-width:560px;max-height:88vh;overflow:auto;padding:16px 16px calc(22px + env(safe-area-inset-bottom))}
 .fh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
@@ -186,8 +187,9 @@ function salva(){try{localStorage.setItem(CHAVE,JSON.stringify(DB))}catch(e){avi
 const esc=t=>String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const u=v=>(v>=0?"+":"")+v.toFixed(2)+"u",pc=v=>(v>=0?"+":"")+v.toFixed(1)+"%",cl=v=>v>=0?"ok":"no",ganho=o=>(o-1)*(1-COM);
 function aviso(t){const e=document.getElementById("toast");e.textContent=t;e.style.display="block";clearTimeout(aviso.t);aviso.t=setTimeout(()=>e.style.display="none",5000)}
-function stats(L){const d=L.filter(p=>p.resultado),ok=d.filter(p=>p.resultado=="acertou").length,lucro=d.reduce((t,p)=>t+(p.lucro||0),0);
- return {n:L.length,dec:d.length,ok,erro:d.length-ok,pend:L.length-d.length,taxa:d.length?ok/d.length*100:0,lucro,roi:d.length?lucro/d.length*100:0}}
+const isAnul=p=>p.status=="anulado"||p.status=="cancelado";   // jogo adiado/cancelado/abandonado: ANULADO, não conta acerto, erro nem profit
+function stats(L){const A=L.filter(isAnul),V=L.filter(p=>!isAnul(p)),d=V.filter(p=>p.resultado),ok=d.filter(p=>p.resultado=="acertou").length,lucro=d.reduce((t,p)=>t+(p.lucro||0),0);
+ return {n:V.length,anul:A.length,dec:d.length,ok,erro:d.length-ok,pend:V.length-d.length,taxa:d.length?ok/d.length*100:0,lucro,roi:d.length?lucro/d.length*100:0}}
 /* ── Importação ── */
 /* A lista do dia (jogos + conflitos já resolvidos pelo painel) vale a partir da PRIMEIRA importação daquele dia. Importações seguintes do mesmo dia
    só atualizam resultado/placar/status e o profit do mês das regras; jogos novos ou removidos no arquivo são ignorados. "Recomeçar este dia" libera de novo. */
@@ -199,7 +201,7 @@ function importa(docs){let novas=0,atual=0,ignoradas=0,criados=0;docs.sort((a,b)
    DB.info[dia0]={sem_regra:!!doc.sem_regra,regras:doc.regras_dia||[],conflitos:doc.conflitos||[],criterio:doc.criterio||null,gerado_em:doc.gerado_em||null,congelado_em:doc.congelado_em||null};criados++}
   else{const d=DB.dias[dia0];
    for(const p of doc.previsoes){const ant=d[p.id];if(!ant){ignoradas++;continue}
-    if(p.resultado||!ant.resultado){d[p.id]={...ant,status:p.status,placar:p.placar,resultado:p.resultado,lucro:p.lucro};if(p.resultado&&!ant.resultado)atual++}}
+    if(p.resultado||!ant.resultado){d[p.id]={...ant,status:p.status,placar:p.placar,resultado:p.resultado,lucro:p.lucro,motivo:p.motivo||null};if(p.resultado&&!ant.resultado)atual++}}
    const inf=DB.info[dia0]=DB.info[dia0]||{sem_regra:!!doc.sem_regra,regras:[],conflitos:[],criterio:null};
    for(const r of doc.regras_dia||[]){const x=(inf.regras||[]).find(y=>y.id==r.id);if(x&&r.mes)x.mes=r.mes}
    inf.gerado_em=doc.gerado_em||inf.gerado_em}
@@ -257,15 +259,19 @@ function somaMes(p){const inf=DB.info[p.dia];if(!inf)return;
   dd.n++;if(p.resultado=="acertou")dd.ok++;dd.lucro+=p.lucro}}
 function desenhaRf(){const b=document.getElementById("btnRf");if(!b)return;b.textContent=_rfErro?"↻ sem conexão":_rfEm?"↻ "+String(_rfEm.getHours()).padStart(2,"0")+":"+String(_rfEm.getMinutes()).padStart(2,"0"):"↻ atualizar";statusSync()}
 function agendaNuvem(){clearTimeout(_rfSalvaT);_rfSalvaT=setTimeout(()=>{_rfSalvaT=null;salvaNuvem(true)},300000)}
+const MOTIVO_ANUL={postponed:"adiado",cancelled:"cancelado",aborted:"abandonado"};
 const limpaPlacar=t=>String(t).split("-").map(x=>x.trim()).join(" - ");
 async function atualizaPlacares(manual){if(_rfBusy)return;
- const dias=Object.keys(DB.dias).sort().slice(-3).filter(d=>Object.values(DB.dias[d]).some(p=>!p.resultado&&p.status!="cancelado"));
+ const dias=Object.keys(DB.dias).sort().slice(-3).filter(d=>Object.values(DB.dias[d]).some(p=>!p.resultado));
  if(!dias.length){if(manual)aviso("Todos os jogos já terminaram.");return}
  _rfBusy=true;let mudou=0,fim=0;
  try{for(const dia of dias){const r=await fetch(`https://www.fotmob.com/api/data/matches?date=${dia.split("-").join("")}&timezone=America%2FSao_Paulo&ccode3=BRA`);if(!r.ok)throw new Error("FotMob respondeu "+r.status);
-   const j=await r.json(),mp={};for(const l of j.leagues||[])for(const m of l.matches||[])mp[String(m.id)]=m.status||{};
-   for(const p of Object.values(DB.dias[dia])){if(p.resultado||p.status=="cancelado")continue;const st0=mp[String(p.id).split("|")[0]];if(!st0)continue;
-    const st=st0.cancelled?"cancelado":st0.finished?"encerrado":st0.started?"andamento":"pendente",pl=st0.started&&st0.scoreStr?limpaPlacar(st0.scoreStr):null;
+   const j=await r.json(),mp={};for(const l of j.leagues||[])for(const m of l.matches||[])mp[String(m.id)]=m.status||{};const nLista=Object.keys(mp).length;
+   for(const p of Object.values(DB.dias[dia])){if(p.resultado)continue;const st0=mp[String(p.id).split("|")[0]];
+    if(!st0){if(nLista>=150&&p.status!="anulado"){p.status="anulado";p.motivo="adiado (saiu da lista do dia)";p.placar=null;mudou++}continue}   // sumiu da lista do dia = remarcado pra outra data
+    if(st0.cancelled){const mot=MOTIVO_ANUL[(st0.reason&&st0.reason.longKey)||""]||"cancelado";if(p.status!="anulado"||p.motivo!=mot){p.status="anulado";p.motivo=mot;p.placar=null;mudou++}continue}
+    if(p.motivo)p.motivo=null;   // voltou a valer (o jogo reapareceu normal)
+    const st=st0.finished?"encerrado":st0.started?"andamento":"pendente",pl=st0.started&&st0.scoreStr?limpaPlacar(st0.scoreStr):null;
     if(st!=p.status||pl!=(p.placar||null)){p.status=st;p.placar=pl;mudou++}
     if(st=="encerrado"&&pl){const [a,b]=pl.split(" - ").map(Number),f=RES_LK[String(p.id).split("|")[1]];
      if(f&&!isNaN(a)&&!isNaN(b)){const ok=f(a,b);p.resultado=ok?"acertou":"errou";p.lucro=ok?ganho(p.odd):-1;somaMes(p);fim++}}}}
@@ -291,7 +297,7 @@ async function sincronizaNuvem(manual){if(!ghToken())return false;if(!manual&&Da
 /* ── Detalhe do jogo (toque no cartão): regras que indicaram, histórico de cada uma, odd mínima e valor esperado ── */
 function fechaDetalhe(){const m=document.getElementById("detalhe");if(m)m.remove()}
 function abreDetalhe(id){const dia=diaSel,p=(DB.dias[dia]||{})[id];if(!p)return;fechaDetalhe();const inf=DB.info[dia]||{},v=valorDe(p);
- const st=p.resultado=="acertou"?`<span class="selo ok">${IC.ok} Acertou ${u(p.lucro)}</span>`:p.resultado=="errou"?`<span class="selo no">${IC.no} Errou ${u(p.lucro)}</span>`:p.status=="andamento"?`<span class="selo live">Ao vivo</span>`:`<span class="selo">${IC.espera} Aguardando</span>`;
+ const st=p.resultado=="acertou"?`<span class="selo ok">${IC.ok} Acertou ${u(p.lucro)}</span>`:p.resultado=="errou"?`<span class="selo no">${IC.no} Errou ${u(p.lucro)}</span>`:isAnul(p)?`<span class="selo">Anulado${p.motivo?" · "+esc(p.motivo):""} — não conta no profit</span>`:p.status=="andamento"?`<span class="selo live">Ao vivo</span>`:`<span class="selo">${IC.espera} Aguardando</span>`;
  const regs=(p.regras||[]).map(r=>{const x=(inf.regras||[]).find(y=>y.id==r.id)||{},m=x.mes;
   return `<div class="rg"><span class="sel ${classeVer(r.ver)}">${esc(r.ver)}</span><b>${esc(r.mercado)}</b><small>${esc(r.curto)}</small><small>${r.pass}/${r.total} testes${x.lucro_total!=null?` · profit geral ${u(x.lucro_total)}`:""}${m?` · mês ${u(m.lucro)} (${m.n} apostas, ${m.n?Math.round(m.ok/m.n*100):0}% de acerto)`:""}</small>${m&&m.dias&&m.dias.length?mesHtml(m):""}</div>`}).join("");
  const w=document.createElement("div");w.id="detalhe";w.className="sheet";w.onclick=e=>{if(e.target==w)fechaDetalhe()};
@@ -306,7 +312,7 @@ document.addEventListener("keydown",e=>{if(e.key=="Escape")fechaDetalhe()});
 function textoResumo(){const dia=diaSel;if(!dia||!DB.dias[dia])return "";const L=Object.values(DB.dias[dia]).sort((a,b)=>(a.utc||"").localeCompare(b.utc||"")),s=stats(L),d=dia.slice(8)+"/"+dia.slice(5,7);
  let t=`Gol em Números — ${d}\n${s.ok}/${s.dec} acertos${s.dec?" ("+s.taxa.toFixed(0)+"%)":""} · ${s.dec?u(s.lucro):"–"}${s.dec?" · ROI "+pc(s.roi):""}`;
  const fim=L.filter(p=>p.resultado);if(fim.length)t+="\n\n"+fim.map(p=>`${p.resultado=="acertou"?"✅":"❌"} ${p.casa} x ${p.fora} — ${p.aposta} @ ${Number(p.odd).toFixed(2)} (${u(p.lucro)})`).join("\n");
- if(s.pend)t+=`\n\n⏳ ${s.pend} jogo(s) em aberto`;return t}
+ if(s.pend)t+=`\n\n⏳ ${s.pend} jogo(s) em aberto`;const an=L.filter(isAnul);if(an.length)t+=`\n\n⚪ ${an.length} anulado(s) (não contam): `+an.map(p=>p.casa+" x "+p.fora+(p.motivo?" ("+p.motivo+")":"")).join("; ");return t}
 async function compartilha(){const t=textoResumo();if(!t){aviso("Nada para compartilhar ainda.");return}
  try{if(navigator.share){await navigator.share({title:"Gol em Números",text:t});return}}catch(e){if(e&&e.name=="AbortError")return}
  try{await navigator.clipboard.writeText(t);aviso("Resumo copiado. É só colar no Telegram ou no WhatsApp.")}catch(e){aviso("Não consegui compartilhar neste navegador.")}}
@@ -322,10 +328,10 @@ document.getElementById("arq").onchange=async e=>{const fs=[...e.target.files];e
 /* ── Cartão ── */
 const crest=(id,n)=>id?`<img src="${URL_ESC(id)}" alt="${esc(n)}" loading="lazy" onerror="this.outerHTML='<span class=&quot;fb&quot;>'+this.alt.slice(0,2).toUpperCase()+'</span>'">`:`<span class="fb">${esc(n).slice(0,2).toUpperCase()}</span>`;
 function valorDe(p){if(!p.hist||!p.hist.n)return null;const K=30,pr=(p.hist.ok+K*(1/(1+ganho(p.odd))))/(p.hist.n+K),ev=pr*ganho(p.odd)-(1-pr),om=1+(1/pr-1)/(1-COM);return {p:pr,ev,oddMin:om,compensa:p.odd>=om}}
-function jogo(p){const ok=p.resultado=="acertou",no=p.resultado=="errou",vivo=p.status=="andamento",canc=p.status=="cancelado";
- const cls=ok?"ok":no?"no":vivo?"live":"",top=vivo?`<span><i class="dot"></i>ao vivo</span>`:`<span>${esc(p.hora||"")}</span>`;
+function jogo(p){const ok=p.resultado=="acertou",no=p.resultado=="errou",vivo=p.status=="andamento",canc=isAnul(p);
+ const cls=ok?"ok":no?"no":vivo?"live":canc?"anul":"",top=vivo?`<span><i class="dot"></i>ao vivo</span>`:`<span>${esc(p.hora||"")}</span>`;
  const pl=p.placar?esc(p.placar.replace(/ /g,"").replace("-"," – ")):"VS",v=valorDe(p),rg=p.regras||[];
- const selo=ok?`<span class="selo ok">${IC.ok} Acertou <span class="v">${u(p.lucro)}</span></span>`:no?`<span class="selo no">${IC.no} Errou <span class="v">${u(p.lucro)}</span></span>`:canc?`<span class="selo">Cancelado</span>`:vivo?`<span class="selo live">Ao vivo</span>`:`<span class="selo">${IC.espera} Aguardando</span>`;
+ const selo=ok?`<span class="selo ok">${IC.ok} Acertou <span class="v">${u(p.lucro)}</span></span>`:no?`<span class="selo no">${IC.no} Errou <span class="v">${u(p.lucro)}</span></span>`:canc?`<span class="selo">Anulado${p.motivo?" · "+esc(p.motivo):""}</span>`:vivo?`<span class="selo live">Ao vivo</span>`:`<span class="selo">${IC.espera} Aguardando</span>`;
  const val=v?`<div class="valor"><span class="vtag ${v.compensa?"ok":"no"}" title="Abaixo dessa odd a aposta deixa de compensar">Odd mín. <b>${v.oddMin.toFixed(2)}</b> ${v.compensa?"✓":"✗"}</span><span class="vtag ${v.ev>0?"ok":""}">EV <b>${u(v.ev)}</b></span></div>`:"";
  const reg=rg.length?`<div class="regras" title="${esc(rg.map(r=>r.mercado+": "+r.curto).join(" | "))}"><b>${rg.length>1?rg.length+" regras":"1 regra"}</b> · ${esc(rg.map(r=>r.mercado).join(" · "))}</div>`:"";
  return `<article class="jogo ${cls}" data-id="${esc(p.id)}"><div class="j-top"><span>${esc(p.liga)}</span>${top}</div>
@@ -337,7 +343,7 @@ function heroDia(titulo,s,sub,mostraPend){const dias=Object.keys(DB.dias).sort()
  return `<div class="data">${esc(titulo||tx.charAt(0).toUpperCase()+tx.slice(1))} <select id="selDia">${dias.slice().reverse().map(d=>`<option value="${d}"${d==diaSel?" selected":""}>${d.slice(8)}/${d.slice(5,7)}</option>`).join("")}</select> <button class="rf" id="btnRf" onclick="atualizaPlacares(true)">↻ atualizar</button> <button class="rf" onclick="compartilha()">Compartilhar</button></div>
  <div class="syncl" id="syncL"></div>
  <div class="resumo"><div class="anel">${anel(s)}<div class="c"><b>${s.ok}/${s.dec}</b><small>acertos</small></div></div><div class="kpis"><div class="kpi-big ${s.dec?cl(s.lucro):"mut"}">${s.dec?u(s.lucro):"–"}</div><div class="kpi-sub">${sub}</div>
- <div class="kpi-row"><span class="pill">Taxa <b>${s.dec?s.taxa.toFixed(0)+"%":"–"}</b></span>${mostraPend?`<span class="pill">Aguardando <b class="${s.pend?"live":""}">${s.pend}</b></span>`:`<span class="pill">ROI <b class="${cl(s.roi)}">${s.dec?pc(s.roi):"–"}</b></span>`}</div></div></div>`}
+ <div class="kpi-row"><span class="pill">Taxa <b>${s.dec?s.taxa.toFixed(0)+"%":"–"}</b></span>${mostraPend?`<span class="pill">Aguardando <b class="${s.pend?"live":""}">${s.pend}</b></span>${s.anul?`<span class="pill" title="Jogos adiados/cancelados: não contam acerto, erro nem profit">Anulados <b>${s.anul}</b></span>`:""}`:`<span class="pill">ROI <b class="${cl(s.roi)}">${s.dec?pc(s.roi):"–"}</b></span>`}</div></div></div>`}
 const vazioMsg=t=>`<div class="vazio"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>${t}</div>`;
 const classeVer=v=>v=="VALIDADA"?"VALIDADA":v=="PROMISSORA"?"PROMISSORA":v=="EM OBSERVAÇÃO"?"OBS":"NAO";
 /* ── HOJE ── */
@@ -362,13 +368,13 @@ function telaDia(){const dias=Object.keys(DB.dias).sort(),h=document.getElementB
  if(!diaSel||!DB.dias[diaSel])diaSel=dias[dias.length-1];
  const L=Object.values(DB.dias[diaSel]).sort((a,b)=>(a.utc||"").localeCompare(b.utc||"")),s=stats(L);
  h.innerHTML=heroDia(null,s,"profit do dia · 1u por aposta",true);
- const ST={enc:"encerrado",vivo:"andamento",prox:"pendente"},cont={};for(const k in ST)cont[k]=L.filter(p=>p.status==ST[k]).length;
+ const ST={enc:"encerrado",vivo:"andamento",prox:"pendente"},cont={};for(const k in ST)cont[k]=L.filter(p=>p.status==ST[k]).length;cont.anul=L.filter(isAnul).length;
  const rinfo=(DB.info[diaSel]&&DB.info[diaSel].regras)||[],cntR={};for(const p of L)for(const r of (p.regras||[]))cntR[r.id]=(cntR[r.id]||0)+1;
  if(filtroRegra&&!cntR[filtroRegra])filtroRegra="";
  const ropc=rinfo.filter(r=>cntR[r.id]).sort((a,b)=>b.lucro_total-a.lucro_total),rsel=ropc.find(r=>r.id==filtroRegra);
- const LF=L.filter(p=>(!filtroHoje||p.status==ST[filtroHoje])&&(!filtroRegra||(p.regras||[]).some(r=>r.id==filtroRegra)));
+ const LF=L.filter(p=>(!filtroHoje||(filtroHoje=="anul"?isAnul(p):p.status==ST[filtroHoje]))&&(!filtroRegra||(p.regras||[]).some(r=>r.id==filtroRegra)));
  const cur=t=>t.length>46?t.slice(0,45)+"…":t;
- const chips=L.length?`<div class="fchips">${[["enc","Encerrados"],["vivo","Ao vivo"],["prox","Próximos"]].map(([k,n])=>`<button class="fchip ${filtroHoje==k?"on":""}" onclick="filtroHoje=filtroHoje=='${k}'?null:'${k}';desenha()">${n}<b>${cont[k]}</b></button>`).join("")}`+
+ const chips=L.length?`<div class="fchips">${[["enc","Encerrados"],["vivo","Ao vivo"],["prox","Próximos"],...(cont.anul?[["anul","Anulados"]]:[])].map(([k,n])=>`<button class="fchip ${filtroHoje==k?"on":""}" onclick="filtroHoje=filtroHoje=='${k}'?null:'${k}';desenha()">${n}<b>${cont[k]}</b></button>`).join("")}`+
   (ropc.length?`<select class="fsel ${filtroRegra?"on":""}" onchange="filtroRegra=this.value;desenha()" title="Filtrar por regra"><option value="">Todas as regras (${ropc.length})</option>${ropc.map(r=>`<option value="${esc(r.id)}"${r.id==filtroRegra?" selected":""}>${esc(cur(r.mercado+" — "+r.curto))} (${cntR[r.id]})${r.mes?" · mês "+u(r.mes.lucro):""}</option>`).join("")}</select>`:"")+`</div>`:"";
  const selInfo=rsel?`<div class="rg-sel"><span class="sel ${classeVer(rsel.ver)}">${esc(rsel.ver)}</span><b>${esc(rsel.mercado)}</b> · ${rsel.pass}/${rsel.total} testes · profit geral ${u(rsel.lucro_total)}<br>${esc(rsel.curto)}</div>${mesHtml(rsel.mes)}`:"";
  return `<div class="barra-hoje">${infoDia(DB.info[diaSel])}${chips}${selInfo}</div>`+(LF.length?`<div class="lista">${LF.map(jogo).join("")}</div>`:(L.length?`<div class="vazio">Nenhum jogo nesse filtro.</div>`:""))}
