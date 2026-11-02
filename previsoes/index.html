@@ -253,21 +253,24 @@ function desenhaNuvem(){const b=document.getElementById("nuvemBox");if(!b)return
    estava fechado é resolvido na próxima abertura. Se o FotMob falhar, vale o que veio do arquivo do painel. */
 let _rfBusy=false,_rfEm=null,_rfErro=false,_rfSalvaT=null;
 const RES_LK={casa:(a,b)=>a>b,fora:(a,b)=>b>a,empate:(a,b)=>a==b,o15:(a,b)=>a+b>=2,u15:(a,b)=>a+b<2,o25:(a,b)=>a+b>=3,u25:(a,b)=>a+b<3,o35:(a,b)=>a+b>=4,u35:(a,b)=>a+b<4,bs:(a,b)=>a>0&&b>0,bn:(a,b)=>!(a>0&&b>0)};
-function somaMes(p){const inf=DB.info[p.dia];if(!inf)return;
+function somaMes(p,sn){sn=sn||1;const inf=DB.info[p.dia];if(!inf)return;
  for(const r of p.regras||[]){const x=(inf.regras||[]).find(y=>y.id==r.id);if(!x||!x.mes||String(p.dia).slice(0,7)!=x.mes.ym)continue;const m=x.mes;
-  m.lucro+=p.lucro;m.n++;if(p.resultado=="acertou")m.ok++;let dd=m.dias.find(q=>q.d==p.dia);if(!dd){dd={d:p.dia,n:0,ok:0,lucro:0};m.dias.push(dd);m.dias.sort((a,b)=>a.d.localeCompare(b.d))}
-  dd.n++;if(p.resultado=="acertou")dd.ok++;dd.lucro+=p.lucro}}
+  m.lucro+=sn*p.lucro;m.n+=sn;if(p.resultado=="acertou")m.ok+=sn;let dd=m.dias.find(q=>q.d==p.dia);if(!dd){if(sn<0)continue;dd={d:p.dia,n:0,ok:0,lucro:0};m.dias.push(dd);m.dias.sort((a,b)=>a.d.localeCompare(b.d))}
+  dd.n+=sn;if(p.resultado=="acertou")dd.ok+=sn;dd.lucro+=sn*p.lucro;if(dd.n<=0)m.dias=m.dias.filter(q=>q!==dd)}}
 function desenhaRf(){const b=document.getElementById("btnRf");if(!b)return;b.textContent=_rfErro?"↻ sem conexão":_rfEm?"↻ "+String(_rfEm.getHours()).padStart(2,"0")+":"+String(_rfEm.getMinutes()).padStart(2,"0"):"↻ atualizar";statusSync()}
 function agendaNuvem(){clearTimeout(_rfSalvaT);_rfSalvaT=setTimeout(()=>{_rfSalvaT=null;salvaNuvem(true)},300000)}
 const MOTIVO_ANUL={postponed:"adiado",cancelled:"cancelado",aborted:"abandonado"};
 const limpaPlacar=t=>String(t).split("-").map(x=>x.trim()).join(" - ");
-async function atualizaPlacares(manual){if(_rfBusy)return;
- const dias=Object.keys(DB.dias).sort().slice(-3).filter(d=>Object.values(DB.dias[d]).some(p=>!p.resultado));
+async function atualizaPlacares(manual,reverifica){if(_rfBusy)return;reverifica=reverifica||manual;
+ const dias=Object.keys(DB.dias).sort().slice(-7).filter((d,i,a)=>(reverifica&&i>=a.length-2)||Object.values(DB.dias[d]).some(p=>!p.resultado));
  if(!dias.length){if(manual)aviso("Todos os jogos já terminaram.");return}
  _rfBusy=true;let mudou=0,fim=0;
  try{for(const dia of dias){const r=await fetch(`https://www.fotmob.com/api/data/matches?date=${dia.split("-").join("")}&timezone=America%2FSao_Paulo&ccode3=BRA`);if(!r.ok)throw new Error("FotMob respondeu "+r.status);
    const j=await r.json(),mp={};for(const l of j.leagues||[])for(const m of l.matches||[])mp[String(m.id)]=m.status||{};const nLista=Object.keys(mp).length;
-   for(const p of Object.values(DB.dias[dia])){if(p.resultado)continue;const st0=mp[String(p.id).split("|")[0]];
+   for(const p of Object.values(DB.dias[dia])){const st0=mp[String(p.id).split("|")[0]];
+    if(p.resultado){   // já tinha resultado, mas o jogo foi abandonado/anulado depois: desfaz o resultado e tira do profit (inclusive do mês da regra)
+     if(reverifica&&st0&&st0.cancelled){const mot=MOTIVO_ANUL[(st0.reason&&st0.reason.longKey)||""]||"cancelado";somaMes(p,-1);p.status="anulado";p.motivo=mot+" (resultado desfeito)";p.resultado=null;p.lucro=null;p.placar=null;mudou++}
+     continue}
     if(!st0){if(nLista>=150&&p.status!="anulado"){p.status="anulado";p.motivo="adiado (saiu da lista do dia)";p.placar=null;mudou++}continue}   // sumiu da lista do dia = remarcado pra outra data
     if(st0.cancelled){const mot=MOTIVO_ANUL[(st0.reason&&st0.reason.longKey)||""]||"cancelado";if(p.status!="anulado"||p.motivo!=mot){p.status="anulado";p.motivo=mot;p.placar=null;mudou++}continue}
     if(p.motivo)p.motivo=null;   // voltou a valer (o jogo reapareceu normal)
@@ -280,7 +283,7 @@ async function atualizaPlacares(manual){if(_rfBusy)return;
  catch(e){_rfErro=true;desenhaRf();if(manual)aviso("Não consegui atualizar os placares agora ("+e.message+"). Vale o que veio do painel.")}
  finally{_rfBusy=false}}
 setInterval(()=>{if(document.visibilityState=="visible"){sincronizaNuvem(false);atualizaPlacares(false)}},90000);
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState=="visible")sincronizaNuvem(false).finally(()=>atualizaPlacares(false));else if(_rfSalvaT){clearTimeout(_rfSalvaT);_rfSalvaT=null;salvaNuvem(true)}});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState=="visible")sincronizaNuvem(false).finally(()=>atualizaPlacares(false,true));else if(_rfSalvaT){clearTimeout(_rfSalvaT);_rfSalvaT=null;salvaNuvem(true)}});
 /* ── Sincronização automática: o painel (no PC) publica o painel_app.json no repositório privado; o app lê dali em qualquer aparelho que tenha o token ── */
 const CAMINHO_PAINEL="painel_app.json";
 let _syncEm=0;
@@ -409,7 +412,7 @@ function desenha(){const c=document.getElementById("conteudo");
 document.getElementById("tHoje").onclick=()=>{aba="hoje";desenha();scrollTo(0,0)};
 document.getElementById("tHist").onclick=()=>{aba="hist";desenha();scrollTo(0,0)};
 carrega();desenha();
-(ghToken()?sincronizaNuvem(true):Promise.resolve()).finally(()=>atualizaPlacares(false));   // aparelho vazio (dados apagados / outro aparelho): tenta recuperar a cópia do GitHub
+(ghToken()?sincronizaNuvem(true):Promise.resolve()).finally(()=>atualizaPlacares(false,true));   // aparelho vazio (dados apagados / outro aparelho): tenta recuperar a cópia do GitHub
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}   // pede ao navegador pra não apagar os dados guardados
 if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
