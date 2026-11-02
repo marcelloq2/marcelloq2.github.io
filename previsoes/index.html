@@ -259,6 +259,9 @@ function somaMes(p,sn){sn=sn||1;const inf=DB.info[p.dia];if(!inf)return;
   dd.n+=sn;if(p.resultado=="acertou")dd.ok+=sn;dd.lucro+=sn*p.lucro;if(dd.n<=0)m.dias=m.dias.filter(q=>q!==dd)}}
 function desenhaRf(){const b=document.getElementById("btnRf");if(!b)return;b.textContent=_rfErro?"↻ sem conexão":_rfEm?"↻ "+String(_rfEm.getHours()).padStart(2,"0")+":"+String(_rfEm.getMinutes()).padStart(2,"0"):"↻ atualizar";statusSync()}
 function agendaNuvem(){clearTimeout(_rfSalvaT);_rfSalvaT=setTimeout(()=>{_rfSalvaT=null;salvaNuvem(true)},300000)}
+// handicap asiático: lk = ah_<c|f>_<linha do time>, ex. ah_c_-0.25 (+1 ganha, +0,5 ganha metade, 0 devolve, -0,5 perde metade, -1 perde)
+function fracAH(lk,gh,ga){const pt=lk.split("_"),h=parseFloat(pt[2]),d=pt[1]=="c"?gh-ga:ga-gh,u=hh=>{const x=d+hh;return x>0?1:x<0?-1:0};
+ return Math.abs(h*4%2)<1e-9?u(h):(u(h-0.25)+u(h+0.25))/2}
 const MOTIVO_ANUL={postponed:"adiado",cancelled:"cancelado",aborted:"abandonado"};
 const limpaPlacar=t=>String(t).split("-").map(x=>x.trim()).join(" - ");
 async function atualizaPlacares(manual,reverifica){if(_rfBusy)return;reverifica=reverifica||manual;
@@ -276,8 +279,11 @@ async function atualizaPlacares(manual,reverifica){if(_rfBusy)return;reverifica=
     if(p.motivo)p.motivo=null;   // voltou a valer (o jogo reapareceu normal)
     const st=st0.finished?"encerrado":st0.started?"andamento":"pendente",pl=st0.started&&st0.scoreStr?limpaPlacar(st0.scoreStr):null;
     if(st!=p.status||pl!=(p.placar||null)){p.status=st;p.placar=pl;mudou++}
-    if(st=="encerrado"&&pl){const [a,b]=pl.split(" - ").map(Number),f=RES_LK[String(p.id).split("|")[1]];
-     if(f&&!isNaN(a)&&!isNaN(b)){const ok=f(a,b);p.resultado=ok?"acertou":"errou";p.lucro=ok?ganho(p.odd):-1;somaMes(p);fim++}}}}
+    if(st=="encerrado"&&pl){const [a,b]=pl.split(" - ").map(Number),lk=String(p.id).split("|")[1],f=RES_LK[lk];
+     if(lk.startsWith("ah_")&&!isNaN(a)&&!isNaN(b)){const fr=fracAH(lk,a,b);   // handicap asiático: pode ganhar/perder metade ou ser devolvido
+      if(fr==0){p.status="anulado";p.motivo="aposta devolvida (handicap)";p.placar=null;mudou++}
+      else{p.resultado=fr>0?"acertou":"errou";p.lucro=fr>0?fr*ganho(p.odd):fr;somaMes(p);fim++}}
+     else if(f&&!isNaN(a)&&!isNaN(b)){const ok=f(a,b);p.resultado=ok?"acertou":"errou";p.lucro=ok?ganho(p.odd):-1;somaMes(p);fim++}}}}
   _rfErro=false;_rfEm=new Date();if(mudou||fim){salva();desenha();if(fim)agendaNuvem()}else desenhaRf();
   if(manual)aviso(fim?`${fim} jogo(s) terminaram: resultado atualizado.`:mudou?"Placares atualizados.":"Sem novidades por enquanto.")}
  catch(e){_rfErro=true;desenhaRf();if(manual)aviso("Não consegui atualizar os placares agora ("+e.message+"). Vale o que veio do painel.")}
