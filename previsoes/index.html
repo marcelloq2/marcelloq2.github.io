@@ -262,6 +262,7 @@ function agendaNuvem(){clearTimeout(_rfSalvaT);_rfSalvaT=setTimeout(()=>{_rfSalv
 // handicap asiático: lk = ah_<c|f>_<linha do time>, ex. ah_c_-0.25 (+1 ganha, +0,5 ganha metade, 0 devolve, -0,5 perde metade, -1 perde)
 function fracAH(lk,gh,ga){const pt=lk.split("_"),h=parseFloat(pt[2]),d=pt[1]=="c"?gh-ga:ga-gh,u=hh=>{const x=d+hh;return x>0?1:x<0?-1:0};
  return Math.abs(h*4%2)<1e-9?u(h):(u(h-0.25)+u(h+0.25))/2}
+const idadeDias=d=>{const [y,m,dd]=d.split("-").map(Number),h=new Date();return Math.floor((new Date(h.getFullYear(),h.getMonth(),h.getDate())-new Date(y,m-1,dd))/86400000)};
 const MOTIVO_ANUL={postponed:"adiado",cancelled:"cancelado",aborted:"abandonado"};
 const limpaPlacar=t=>String(t).split("-").map(x=>x.trim()).join(" - ");
 async function atualizaPlacares(manual,reverifica){if(_rfBusy)return;reverifica=reverifica||manual;
@@ -278,6 +279,8 @@ async function atualizaPlacares(manual,reverifica){if(_rfBusy)return;reverifica=
     if(st0.cancelled){const mot=MOTIVO_ANUL[(st0.reason&&st0.reason.longKey)||""]||"cancelado";if(p.status!="anulado"||p.motivo!=mot){p.status="anulado";p.motivo=mot;p.placar=null;mudou++}continue}
     if(p.motivo)p.motivo=null;   // voltou a valer (o jogo reapareceu normal)
     const st=st0.finished?"encerrado":st0.started?"andamento":"pendente",pl=st0.started&&st0.scoreStr?limpaPlacar(st0.scoreStr):null;
+    // partida SEM PLACAR é eliminada: encerrada sem placar, ou ainda não encerrada 2+ dias depois (nunca vai valer acerto nem erro)
+    if(st=="encerrado"&&!pl||st!="encerrado"&&idadeDias(dia)>=2){if(p.status!="anulado"){p.status="anulado";p.motivo="sem placar (descartada)";p.placar=null;mudou++}continue}
     if(st!=p.status||pl!=(p.placar||null)){p.status=st;p.placar=pl;mudou++}
     if(st=="encerrado"&&pl){const [a,b]=pl.split(" - ").map(Number),lk=String(p.id).split("|")[1],f=RES_LK[lk];
      if(lk.startsWith("ah_")&&!isNaN(a)&&!isNaN(b)){const fr=fracAH(lk,a,b);   // handicap asiático: pode ganhar/perder metade ou ser devolvido
